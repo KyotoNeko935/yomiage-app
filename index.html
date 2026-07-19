@@ -1,24 +1,174 @@
-const CACHE_NAME = 'yomiage-v1';
-const urlsToCache = ['./', './index.html'];
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>読み上げ</title>
+<style>
+  :root {
+    --sumi: #1c1a17;
+    --kinari: #f7f4ec;
+    --shu: #b3402a;
+    --usuzumi: #8a857c;
+    --kumo: #e9e4d8;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif;
+    background: var(--kinari);
+    color: var(--sumi);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  main { width: 100%; max-width: 560px; }
+  h1 {
+    font-size: 1.4rem;
+    font-weight: 600;
+    letter-spacing: 0.5em;
+    margin-bottom: 6px;
+  }
+  .sub {
+    font-size: 0.78rem;
+    color: var(--usuzumi);
+    letter-spacing: 0.12em;
+    margin-bottom: 28px;
+  }
+  textarea {
+    width: 100%;
+    height: 220px;
+    padding: 18px;
+    font: inherit;
+    font-size: 1.05rem;
+    line-height: 2;
+    color: var(--sumi);
+    background: #fff;
+    border: 1px solid var(--kumo);
+    border-radius: 4px;
+    resize: vertical;
+  }
+  textarea:focus {
+    outline: 2px solid var(--shu);
+    outline-offset: 1px;
+    border-color: transparent;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-top: 20px;
+  }
+  button {
+    font: inherit;
+    letter-spacing: 0.3em;
+    text-indent: 0.3em;
+    padding: 12px 30px;
+    border-radius: 4px;
+    cursor: pointer;
+    border: 1px solid var(--sumi);
+    background: none;
+    color: var(--sumi);
+  }
+  #play {
+    background: var(--sumi);
+    color: var(--kinari);
+  }
+  #play:hover { background: #000; }
+  #stop:hover { background: var(--kumo); }
+  button:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+  button:focus-visible { outline: 2px solid var(--shu); outline-offset: 2px; }
+  #status {
+    font-size: 0.82rem;
+    color: var(--shu);
+    letter-spacing: 0.1em;
+    margin-left: auto;
+    visibility: hidden;
+  }
+  #status.on { visibility: visible; }
+  .dot {
+    display: inline-block;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--shu);
+    margin-right: 6px;
+    animation: pulse 1.2s infinite;
+  }
+  @keyframes pulse { 50% { opacity: 0.25; } }
+  @media (prefers-reduced-motion: reduce) { .dot { animation: none; } }
+  #warn {
+    margin-top: 16px;
+    font-size: 0.82rem;
+    color: var(--shu);
+    display: none;
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>読み上げ</h1>
+  <p class="sub">テキストを入力して「再生」を押してください</p>
+  <textarea id="text" placeholder="ここに文章を入力…" aria-label="読み上げるテキスト"></textarea>
+  <div class="row">
+    <button id="play">再生</button>
+    <button id="stop" disabled>停止</button>
+    <span id="status"><span class="dot"></span>読み上げ中</span>
+  </div>
+  <p id="warn">お使いのブラウザは音声合成に対応していません。</p>
+</main>
 
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(urlsToCache))
-  );
-  self.skipWaiting();
-});
+<script>
+  const synth = window.speechSynthesis;
+  const playBtn = document.getElementById('play');
+  const stopBtn = document.getElementById('stop');
+  const status = document.getElementById('status');
+  const textEl = document.getElementById('text');
 
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    )
-  );
-  self.clients.claim();
-});
+  if (!synth) {
+    document.getElementById('warn').style.display = 'block';
+    playBtn.disabled = true;
+  }
 
-self.addEventListener('fetch', (event) => {
-  event.respondWith(
-    caches.match(event.request).then((response) => response || fetch(event.request))
-  );
-});
+  function getJaVoice() {
+    return synth.getVoices().find(v => v.lang.startsWith('ja')) || null;
+  }
+  // 一部ブラウザは音声リストを非同期で読み込む
+  if (synth) synth.getVoices();
+
+  function setSpeaking(on) {
+    playBtn.disabled = on;
+    stopBtn.disabled = !on;
+    status.classList.toggle('on', on);
+  }
+
+  playBtn.addEventListener('click', () => {
+    const text = textEl.value.trim();
+    if (!text) { textEl.focus(); return; }
+    synth.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'ja-JP';
+    const voice = getJaVoice();
+    if (voice) u.voice = voice;
+    u.onstart = () => setSpeaking(true);
+    u.onend = () => setSpeaking(false);
+    u.onerror = () => setSpeaking(false);
+    synth.speak(u);
+  });
+
+  stopBtn.addEventListener('click', () => {
+    synth.cancel();
+    setSpeaking(false);
+  });
+
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    });
+  }
+</script>
+</body>
+</html>
